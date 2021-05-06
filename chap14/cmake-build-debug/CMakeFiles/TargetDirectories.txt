@@ -1,0 +1,3 @@
+/home/user/Desktop/Geek/geek-training-camp/chap14/cmake-build-debug/CMakeFiles/rebuild_cache.dir
+/home/user/Desktop/Geek/geek-training-camp/chap14/cmake-build-debug/CMakeFiles/edit_cache.dir
+/home/user/Desktop/Geek/geek-training-camp/chap14/cmake-build-debug/CMakeFiles/main.dir
