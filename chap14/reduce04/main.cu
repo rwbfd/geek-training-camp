@@ -5,22 +5,18 @@
 
 using namespace std::chrono;
 
-__global__ void reduce1(float *g_idata, float *g_odata) {
+__global__ void reduce4(float *g_idata, float *g_odata) {
     extern __shared__ float sdata[];
 
-    int tid = threadIdx.x;
-    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
-    sdata[tid] = g_idata[i];
+    unsigned int tid = threadIdx.x;
+    unsigned int i = blockIdx.x * (blockDim.x * 2) + threadIdx.x;
+    sdata[tid] = g_idata[i] + g_idata[i + blockDim.x];
     __syncthreads();
-    for(unsigned int s=1; s < blockDim.x; s *= 2) {
-        int index = 2 * s * tid;
-        if (index < blockDim.x) {
-            sdata[index] += sdata[index + s];
-        }
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) { sdata[tid] += sdata[tid + s]; }
         __syncthreads();
     }
 }
-
 
 int main(void) {
     int N = 100000000;
@@ -39,7 +35,7 @@ int main(void) {
 
 //    This is where the code is run
     auto start = high_resolution_clock::now();
-    reduce1<<<(N+255)/256, 256>>>(g_indata_device, g_outdata_device);
+    reduce4<<<(N + 255) / 256, 256>>>(g_indata_device, g_outdata_device);
     auto stop = high_resolution_clock::now();
     auto duration = duration_cast<microseconds>(stop - start);
     std::cout << "Time taken by function: "

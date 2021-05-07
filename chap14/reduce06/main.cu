@@ -5,22 +5,29 @@
 
 using namespace std::chrono;
 
-__global__ void reduce1(float *g_idata, float *g_odata) {
-    extern __shared__ float sdata[];
-
-    int tid = threadIdx.x;
-    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
-    sdata[tid] = g_idata[i];
-    __syncthreads();
-    for(unsigned int s=1; s < blockDim.x; s *= 2) {
-        int index = 2 * s * tid;
-        if (index < blockDim.x) {
-            sdata[index] += sdata[index + s];
-        }
-        __syncthreads();
-    }
+__device__ void warpReduce(volatile float *sdata, int tid) {
+    sdata[tid] += sdata[tid + 32];
+    sdata[tid] += sdata[tid + 16];
+    sdata[tid] += sdata[tid + 8];
+    sdata[tid] += sdata[tid + 4];
+    sdata[tid] += sdata[tid + 2];
+    sdata[tid] += sdata[tid + 1];
 }
 
+__global__ void reduce5(float *g_idata, float *g_odata) {
+    extern __shared__ float sdata[];
+
+    unsigned int tid = threadIdx.x;
+    unsigned int i = blockIdx.x * (blockDim.x * 2) + threadIdx.x;
+    sdata[tid] = g_idata[i] + g_idata[i + blockDim.x];
+    __syncthreads();
+    for (unsigned int s = blockDim.x / 2; s > 32; s >>= 1) {
+        if (tid < s) { sdata[tid] += sdata[tid + s]; }
+        __syncthreads();
+    }
+
+    if (tid > 32) warpReduce(sdata, tid);
+}
 
 int main(void) {
     int N = 100000000;
@@ -39,7 +46,7 @@ int main(void) {
 
 //    This is where the code is run
     auto start = high_resolution_clock::now();
-    reduce1<<<(N+255)/256, 256>>>(g_indata_device, g_outdata_device);
+    reduce5<<<(N + 255) / 256, 256>>>(g_indata_device, g_outdata_device);
     auto stop = high_resolution_clock::now();
     auto duration = duration_cast<microseconds>(stop - start);
     std::cout << "Time taken by function: "

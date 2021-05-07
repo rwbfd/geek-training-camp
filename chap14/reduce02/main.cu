@@ -12,15 +12,13 @@ __global__ void reduce1(float *g_idata, float *g_odata) {
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
     sdata[tid] = g_idata[i];
     __syncthreads();
-    for(unsigned int s=1; s < blockDim.x; s *= 2) {
-        int index = 2 * s * tid;
-        if (index < blockDim.x) {
-            sdata[index] += sdata[index + s];
+    for (unsigned int s = 1; s < blockDim.x; s *= 2) {
+        if (tid % (2 * s) == 0) {
+            sdata[tid] += sdata[tid + s];
         }
         __syncthreads();
     }
 }
-
 
 int main(void) {
     int N = 100000000;
