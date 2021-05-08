@@ -17,7 +17,7 @@ __device__ void warpReduce(volatile float *sdata, int tid) {
 
 template<unsigned int blockSize>
 __global__ void reduce6(float *g_idata, float *g_odata) {
-    extern __shared__ float sdata[];
+    extern __shared__ float sdata[];·
 
     unsigned int tid = threadIdx.x;
     unsigned int i = blockIdx.x * (blockDim.x * 2) + threadIdx.x;
