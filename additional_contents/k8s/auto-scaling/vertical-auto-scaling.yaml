@@ -1,0 +1,21 @@
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: hello-gke-vpa
+spec:
+  targetRef:
+    apiVersion: "apps/v1"
+    kind: Deployment
+    name: hello-gke
+  resourcePolicy:
+    containerPolicies:
+      - containerName: '*'
+        controlledResources: ["cpu", "memory"]
+        minAllowed:
+          cpu: 200m
+          memory: 50Mi
+        maxAllowed:
+          cpu: 500m
+          memory: 500Mi
+  updatePolicy:
+    updateMode: "Auto"

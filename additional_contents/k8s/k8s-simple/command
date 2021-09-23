@@ -1,0 +1,34 @@
+## Create the clusters
+
+gcloud projects list
+gcloud config set project geekbang-gke
+gcloud config set compute/zone us-central1-a
+gcloud container clusters create geekbang-cluster --num-nodes=2 --enable-autoscaling --max-nodes=3 --min-nodes=1 --enable-vertical-pod-autoscaling
+
+#Set cluster gcloud config set container/cluster geekbang-cluster
+
+## Build the docker image
+git clone https://github.com/rwbfd/geekbang_tutorial.git
+cd geekbang_tutorial/geek_tutorial/k8s-simple/docker
+gcloud builds submit -t gcr.io/geekbang-gke/hello-gke .
+docker images
+
+# Deploy containers using yaml
+cd ..
+kubectl apply -f deployment.yaml
+kubectl get deployments
+kubectl get pods
+
+# Deploy using command line (with few arguments)
+# kubectl create deployment hello-gke --image=gcr.io/geekbang-gke/hello-gke:latest
+
+# Deploy a service
+kubectl apply -f service.yaml
+kubectl get services
+
+# Deploy using command line 
+# kubectl expose deployment hello-gke --name=hello-gke --type=LoadBalancer --port 5000 --target-port 5000
+
+kubectl delete service hello-gke
+kubectl delete deployment hello-gke
+gcloud container clusters delete geekbang-cluster

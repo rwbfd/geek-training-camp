@@ -1,0 +1,6 @@
+gcloud projects list
+gcloud config set project geekbang-gke
+gcloud config set compute/zone us-central1-a
+gcloud container clusters create geekbang-cluster --num-nodes=2 --enable-autoscaling --max-nodes=3 --min-nodes=1 --enable-vertical-pod-autoscaling
+
+gcloud builds submit -t gcr.io/geekbang-gke/probe:latest .

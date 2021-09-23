@@ -1,0 +1,167 @@
+import collections
+import functools
+import logging
+import os
+import pathlib
+import sys
+import warnings
+
+try:
+    import rich.traceback
+
+    rich.traceback.install()
+except ImportError:
+    pass
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+logging.getLogger().setLevel('ERROR')
+warnings.filterwarnings('ignore', '.*box bound precision lowered.*')
+
+sys.path.append(str(pathlib.Path('./').parent))
+sys.path.append(str(pathlib.Path('./').parent.parent))
+
+import numpy as np
+import ruamel.yaml as yaml
+
+
+# import agent
+import elements
+
+
+sys.argv.append('--logdir')
+sys.argv.append('/home/william/logdir/atari_pong/dreamerv2/1')
+sys.argv.append('--configs')
+sys.argv.append('defaults')
+sys.argv.append('atari')
+sys.argv.append('--task')
+sys.argv.append('atari_pong')
+
+configs = pathlib.Path('configs.yaml')
+configs = yaml.safe_load(configs.read_text())
+config = elements.Config(configs['defaults'])
+parsed, remaining = elements.FlagParser(configs=['defaults']).parse_known(exit_on_help=False)
+
+for name in parsed.configs:
+    config = config.update(configs[name])
+config = elements.FlagParser(config).parse(remaining)
+logdir = pathlib.Path(config.logdir).expanduser()
+config = config.update(
+    steps=config.steps // config.action_repeat,
+    eval_every=config.eval_every // config.action_repeat,
+    log_every=config.log_every // config.action_repeat,
+    time_limit=config.time_limit // config.action_repeat,
+    prefill=config.prefill // config.action_repeat)
+
+config = config.update(dataset={'batch': 10, 'length': 50, 'oversample_ends': True})
+config = config.update(grad_heads=('image', 'reward'))
+config = config.update(pred_discount=False)
+
+device = 'cuda'
+
+print('Logdir', logdir)
+train_replay = Replay(logdir / 'train_replay', config.replay_size)
+eval_replay = Replay(logdir / 'eval_replay', config.time_limit or 1)
+step = elements.Counter(train_replay.total_steps)
+outputs = [
+    elements.TerminalOutput(),
+    elements.JSONLOutput(logdir),
+    elements.TensorBoardOutput(logdir),
+]
+logger = elements.Logger(step, outputs, multiplier=config.action_repeat)
+metrics = collections.defaultdict(list)
+should_train = elements.Every(config.train_every)
+should_log = elements.Every(config.log_every)
+should_video_train = elements.Every(config.eval_every)
+should_video_eval = elements.Every(config.eval_every)
+
+
+def make_env(mode):
+    suite, task = config.task.split('_', 1)
+    if suite == 'dmc':
+        env = DMC(task, config.action_repeat, config.image_size)
+        env = NormalizeAction(env)
+    elif suite == 'atari':
+        env = Atari(
+            task, config.action_repeat, config.image_size, config.grayscale,
+            life_done=False, sticky_actions=True, all_actions=True)
+        env = OneHotAction(env)
+    else:
+        raise NotImplementedError(suite)
+    env = TimeLimit(env, config.time_limit)
+    env = RewardObs(env)
+    env = ResetObs(env)
+    return env
+
+
+def per_episode(ep, mode):
+    length = len(ep['reward']) - 1
+    score = float(ep['reward'].astype(np.float64).sum())
+    print(f'{mode.title()} episode has {length} steps and return {score:.1f}.')
+    replay_ = dict(train=train_replay, eval=eval_replay)[mode]
+    replay_.add(ep)
+    logger.scalar(f'{mode}_transitions', replay_.num_transitions)
+    logger.scalar(f'{mode}_return', score)
+    logger.scalar(f'{mode}_length', length)
+    logger.scalar(f'{mode}_eps', replay_.num_episodes)
+    should = {'train': should_video_train, 'eval': should_video_eval}[mode]
+    if should(step):
+        logger.video(f'{mode}_policy', ep['image'])
+    logger.write()
+
+
+print('Create envs.')
+train_envs = [make_env('train') for _ in range(config.num_envs)]
+eval_envs = [make_env('eval') for _ in range(config.num_envs)]
+action_space = train_envs[0].action_space['action']
+train_driver = Driver(train_envs)
+train_driver.on_episode(lambda ep: per_episode(ep, mode='train'))
+train_driver.on_step(lambda _: step.increment())
+eval_driver = Driver(eval_envs)
+eval_driver.on_episode(lambda ep: per_episode(ep, mode='eval'))
+
+prefill = max(0, config.prefill - train_replay.total_steps)
+if prefill:
+    print(f'Prefill dataset ({prefill} steps).')
+    random_agent = RandomAgent(action_space)
+    train_driver(random_agent, steps=prefill, episodes=1)
+    eval_driver(random_agent, episodes=1)
+    train_driver.reset()
+    eval_driver.reset()
+
+print('Create agent.')
+train_dataset = iter(train_replay.dataset(**config.dataset))
+eval_dataset = iter(eval_replay.dataset(**config.dataset))
+agnt = Agent(config, logger, action_space, step, train_dataset)
+
+
+def train_step(tran):
+    if should_train(step):
+        for _ in range(config.train_steps):
+            _, mets = agnt.train(next(train_dataset))
+            [metrics[key].append(value) for key, value in mets.items()]
+    if should_log(step):
+        for name, values in metrics.items():
+            logger.scalar(name, np.array(values, np.float64).mean())
+            metrics[name].clear()
+        logger.add(agnt.report(next(train_dataset)), prefix='train')
+        logger.write(fps=True)
+
+
+train_driver.on_step(train_step)
+
+while step < config.steps:
+    logger.write()
+    print('Start evaluation.')
+    logger.add(agnt.report(next(eval_dataset)), prefix='eval')
+    eval_policy = functools.partial(agnt.policy, mode='eval')
+    eval_driver(eval_policy, episodes=config.eval_eps)
+    print('Start training.')
+    train_driver(agnt.policy, steps=config.eval_every)
+    agnt.save(logdir / 'variables.pkl')
+for env in train_envs + eval_envs:
+    try:
+        env.close()
+    except Exception:
+        pass
+
+## check @tf.function

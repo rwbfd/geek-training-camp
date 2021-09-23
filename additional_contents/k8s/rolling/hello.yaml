@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello
+spec:
+  type: LoadBalancer
+  selector:
+    app: hello
+  ports:
+  - port: 5000
+    targetPort: 5000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello
+spec:
+  replicas: 3
+  strategy:
+  # indicate which strategy we want for rolling update
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: hello
+  template:
+    metadata:
+      labels:
+        app: hello
+    spec:
+      containers:
+      - name: hello
+        image: gcr.io/geekbang-gke/hello:1.0
+        ports:
+        - containerPort: 5000
+        readinessProbe:
+          httpGet:
+           path: /healths
+           port: 5000
+          timeoutSeconds: 2
+          periodSeconds: 10
+          failureThreshold: 3

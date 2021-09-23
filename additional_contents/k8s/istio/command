@@ -1,0 +1,25 @@
+gcloud config set project geekbang-gke
+gcloud config set compute/zone us-central1-a
+
+gcloud beta container clusters create geekbang-gke --project=geekbang-gke \
+    --addons=Istio --istio-config=auth=MTLS_STRICT \
+    --cluster-version=latest \
+    --machine-type=n1-standard-1 \
+    --num-nodes=4
+   
+kubectl get svc -n istio-system
+kubectl get pods -n istio-system
+
+kubectl label namespace default istio-injection=enabled
+git clone https://github.com/istio/istio.git
+
+kubectl apply -f samples/bookinfo/platform/kube/bookinfo.yaml
+
+kubectl apply -f samples/bookinfo/networking/bookinfo-gateway.yaml
+kubectl get svc istio-ingressgateway -n istio-system
+
+kubectl apply -f samples/bookinfo/networking/destination-rule-all-mtls.yaml
+kubectl apply -f samples/bookinfo/networking/virtual-service-reviews-50-v3.yaml
+
+
+

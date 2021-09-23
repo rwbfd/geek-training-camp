@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello-gke
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: hello-gke
+  template:
+    metadata:
+      labels:
+        app: hello-gke
+    spec:
+      containers:
+      - name: hello-gke
+        image: gcr.io/geekbang-gke/hello-gke:latest
+        ports:
+        - containerPort: 5000
+#         resources:
+#            requests:
+#              memory: "128Mi"
+#              cpu: "200m"
+#            limits:
+#              memory: "256Mi"
+#              cpu: "500m"
+ 
